@@ -15,17 +15,19 @@ enum a_flag {
   a_obj   = 1 << 0,
   a_under = 1 << 1,
   a_over  = 1 << 2,
+  a_eq    = 1 << 3,
 };
 
 enum h_flag {
   h_obj_bins = 1 << 0,
   h_int_bins = 1 << 1,
+  h_sub_axes = 1 << 2,
 };
 
 typedef struct {
   PyObject_HEAD
-  void *bins; // either array of `double`s, `int64_t`s or `PyObject`s
-  void *dim; // array of pointers to arrays of axes
+  void* axes[2]; // if h_sub_axes - second ptr to sizes
+  void* bins; // either array of `double`s, `int64_t`s or `PyObject*`s
   uint32_t nbins; // number of bins
   uint8_t ndim; // number of dimensions
   uint8_t flags;
@@ -38,68 +40,95 @@ typedef struct {
 // }
 
 static
+int parse_uniform_axis(PyObject** args, PyObject* kwargs) {
+  const long n = PyLong_AsLong(args[0]);
+  if (n < 0) {
+    PyErr_SetString(PyExc_ValueError,"negative number of bins");
+    return -1;
+  }
+  const double a = PyFloat_AsDouble(args[1]);
+  if (a==-1. && PyErr_Occurred()) return -1;
+  const double b = PyFloat_AsDouble(args[2]);
+  if (b==-1. && PyErr_Occurred()) return -1;
+
+  uint32_t nbins = n;
+  PyObject* u = kwargs ? PyDict_GetItemString(kwargs,"u") : NULL;
+  if (u) {
+    int x = PyObject_IsTrue(u);
+    if (x==-1) {
+      return -1;
+    } else if (x) {
+      ++nbins;
+      // TODO: set underflow flag
+    } else {
+      // TODO: unset underflow flag
+    }
+  } else {
+    ++nbins;
+    // TODO: set underflow flag
+  }
+  PyObject* o = kwargs ? PyDict_GetItemString(kwargs,"o") : NULL;
+  if (o) {
+    int x = PyObject_IsTrue(o);
+    if (x==-1) {
+      return -1;
+    } else if (x) {
+      ++nbins;
+      // TODO: set overflow flag
+    } else {
+      // TODO: unset overflow flag
+    }
+  } else {
+    ++nbins;
+    // TODO: set overflow flag
+  }
+
+  printf("%ld %f %f %"PRIu32"\n",n,a,b,nbins);
+  return 0;
+}
+
+static
 int hist_init(hist* self, PyObject* args, PyObject* kwargs) {
   /* printf(STR(__LINE__)": %s\n",__PRETTY_FUNCTION__); */
   const Py_ssize_t nargs = PyTuple_GET_SIZE(args);
-  if (nargs==3) {
-    PyObject* arg0 = PyTuple_GET_ITEM(args,0);
-    if (PyLong_Check(arg0)) { // single uniform axis
-      const long n = PyLong_AsLong(arg0);
-      if (n < 0) {
-        PyErr_SetString(PyExc_ValueError,"negative number of bins");
-        goto error;
-      }
-      const double a = PyFloat_AsDouble(PyTuple_GET_ITEM(args,1));
-      if (a==-1. && PyErr_Occurred()) goto error;
-      const double b = PyFloat_AsDouble(PyTuple_GET_ITEM(args,2));
-      if (b==-1. && PyErr_Occurred()) goto error;
+  if (nargs < 1) {
+    PyErr_SetString(PyExc_ValueError,"hist requires at least 1 argument");
+    return -1;
+  } else if (nargs > (Py_ssize_t)((uint8_t)-1)) {
+    PyErr_SetString(PyExc_ValueError,"too many arguments");
+    return -1;
+  }
+  PyObject* arg = PyTuple_GET_ITEM(args,0);
 
-      self->nbins = n;
-      PyObject* u = kwargs ? PyDict_GetItemString(kwargs,"u") : NULL;
-      if (u) {
-        int x = PyObject_IsTrue(u);
-        if (x==-1) {
-          goto error;
-        } else if (x) {
-          ++self->nbins;
-          // TODO: set underflow flag
-        } else {
-          // TODO: unset underflow flag
-        }
-      } else {
-        ++self->nbins;
-        // TODO: set underflow flag
-      }
-      PyObject* o = kwargs ? PyDict_GetItemString(kwargs,"o") : NULL;
-      if (o) {
-        int x = PyObject_IsTrue(o);
-        if (x==-1) {
-          goto error;
-        } else if (x) {
-          ++self->nbins;
-          // TODO: set overflow flag
-        } else {
-          // TODO: unset overflow flag
-        }
-      } else {
-        ++self->nbins;
-        // TODO: set overflow flag
-      }
-      printf("%ld %f %f %"PRIu32"\n",n,a,b,self->nbins);
-    } else { // first argument is not int
-      goto invalid_args;
+  if (PyLong_Check(arg)) { // single uniform axis
+    if (nargs!=3) {
+      PyErr_SetString(PyExc_ValueError,"invalid arguments");
+      return -1;
     }
-  } else { // not 3 args
-    goto invalid_args;
+
+    if (parse_uniform_axis(&arg,kwargs)) return -1;
+
+  } else { // first argument is not int
+    // assume every argument is iterable
+    for (Py_ssize_t iarg=0;;) {
+      PyObject* iter = PyObject_GetIter(arg);
+      if (!iter) {
+        if (!PyErr_Occurred())
+          PyErr_SetString(PyExc_ValueError,"invalid argument: not iterable");
+        return -1;
+      }
+      for (PyObject* item; (item = PyIter_Next(iter)); ) {
+
+
+        Py_DECREF(item);
+      }
+
+      if (++iarg < nargs) arg = PyTuple_GET_ITEM(args,iarg);
+      else break;
+    }
   }
 
   return 0;
-
-invalid_args:
-  PyErr_SetString(PyExc_ValueError,"invalid arguments");
-
-error:
-  return -1;
 }
 
 static
