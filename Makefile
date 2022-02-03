@@ -2,7 +2,7 @@
 
 CC = gcc
 
-CFLAGS := -Wall -O3 -flto -fmax-errors=3 -Iinclude
+CFLAGS := -Wall -O3 -flto -fmax-errors=3 -Iinclude -DNDEBUG
 # CFLAGS := -Wall -O0 -g -fmax-errors=3 -Iinclude
 
 PYTHON_INCLUDE := $(shell \

@@ -11,6 +11,8 @@
 
 #define MODULE_NAME fillhist
 
+#define LINEFCN printf(STR(__LINE__)": %s\n",__PRETTY_FUNCTION__);
+
 enum a_flag {
   a_obj   = 1 << 0,
   a_under = 1 << 1,
@@ -88,9 +90,8 @@ int parse_uniform_axis(PyObject** args, PyObject* kwargs) {
 }
 
 static
-int hist_init(hist* self, PyObject* args, PyObject* kwargs) {
-  /* printf(STR(__LINE__)": %s\n",__PRETTY_FUNCTION__); */
-  const Py_ssize_t nargs = PyTuple_GET_SIZE(args);
+int hist_init(hist* self, PyTupleObject* targs, PyObject* kwargs) {
+  const Py_ssize_t nargs = Py_SIZE(targs);
   if (nargs < 1) {
     PyErr_SetString(PyExc_ValueError,"hist requires at least 1 argument");
     return -1;
@@ -98,20 +99,20 @@ int hist_init(hist* self, PyObject* args, PyObject* kwargs) {
     PyErr_SetString(PyExc_ValueError,"too many arguments");
     return -1;
   }
-  PyObject* arg = PyTuple_GET_ITEM(args,0);
+  PyObject** args = targs->ob_item;
 
-  if (PyLong_Check(arg)) { // single uniform axis
+  if (PyLong_Check(args[0])) { // single uniform axis
     if (nargs!=3) {
       PyErr_SetString(PyExc_ValueError,"invalid arguments");
       return -1;
     }
 
-    if (parse_uniform_axis(&arg,kwargs)) return -1;
+    if (parse_uniform_axis(args,kwargs)) return -1;
 
   } else { // first argument is not int
     // assume every argument is iterable
-    for (Py_ssize_t iarg=0;;) {
-      PyObject* iter = PyObject_GetIter(arg);
+    for (PyObject **arg = args, **const end = args+nargs;;) {
+      PyObject* iter = PyObject_GetIter(*arg);
       if (!iter) {
         if (!PyErr_Occurred())
           PyErr_SetString(PyExc_ValueError,"invalid argument: not iterable");
@@ -123,8 +124,7 @@ int hist_init(hist* self, PyObject* args, PyObject* kwargs) {
         Py_DECREF(item);
       }
 
-      if (++iarg < nargs) arg = PyTuple_GET_ITEM(args,iarg);
-      else break;
+      if (!(++arg < end)) break;
     }
   }
 
@@ -132,19 +132,18 @@ int hist_init(hist* self, PyObject* args, PyObject* kwargs) {
 }
 
 static
-PyObject* hist_fill(hist* self, PyObject* args, PyObject* kwargs) {
-  PyObject* iter = PyObject_GetIter(args); // args is always a tuple
+PyObject* hist_fill(hist* self, PyTupleObject* targs, PyObject* kwargs) {
   unsigned b = 0; // bin index
   unsigned d = 0; // dimension index
-  for (PyObject* item; (item = PyIter_Next(iter)); ) {
+  for (PyObject **arg=targs->ob_item, **const end=arg+Py_SIZE(targs);
+       arg < end; ++arg
+  ) {
     if (d == self->ndim) {
       // TODO: too many arguments, throw
-      Py_DECREF(item);
       goto ret;
     }
 
     ++d;
-    Py_DECREF(item);
   }
 
   PyObject* w = PyDict_GetItemString(kwargs,"w"); // weight
@@ -173,7 +172,6 @@ PyObject* hist_fill(hist* self, PyObject* args, PyObject* kwargs) {
   }
 
 ret:
-  Py_DECREF(iter);
   Py_RETURN_NONE;
 }
 
